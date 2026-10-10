@@ -1,0 +1,279 @@
+<title>Guest Check-in</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column; sticky header (title, counter, search, filters), big tap rows below, setup panel at the bottom. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --fg: #14202b;
+  --muted: #5d6b78;
+  --line: #d9e0e6;
+  --accent: #2748d6;
+  --accent-fg: #ffffff;
+  --ok: #1f7a4d;
+  --ok-bg: #e0f2e8;
+  --warn: #a8480b;
+  --font-display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
+  --font-body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f161d; --surface: #18222c; --fg: #e8eef3; --muted: #93a2b0; --line: #2a3744;
+    --accent: #7f9bff; --accent-fg: #0d1530; --ok: #6fd69d; --ok-bg: #16322469; --warn: #f0a068;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f161d; --surface: #18222c; --fg: #e8eef3; --muted: #93a2b0; --line: #2a3744;
+  --accent: #7f9bff; --accent-fg: #0d1530; --ok: #6fd69d; --ok-bg: #16322469; --warn: #f0a068;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 17px; line-height: 1.4; -webkit-tap-highlight-color: transparent; }
+.wrap { max-width: 560px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+header { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 14px 10px; display: grid; gap: 10px; border-bottom: 1px solid var(--line); }
+.top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+h1 { font-family: var(--font-display); font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
+.count { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ok); white-space: nowrap; }
+.count small { color: var(--muted); font-weight: 500; }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .25s; }
+.search { position: relative; }
+.search input { width: 100%; height: 52px; font: inherit; color: var(--fg); background: var(--surface); border: 2px solid var(--line); border-radius: 12px; padding-inline: 14px 48px; }
+.search input:focus-visible { outline: none; border-color: var(--accent); }
+.search button { position: absolute; right: 4px; top: 4px; width: 44px; height: 44px; border: 0; background: none; color: var(--muted); font-size: 1.4rem; border-radius: 10px; }
+.chips { display: flex; gap: 8px; }
+.chips button { flex: 1; min-height: 40px; font: inherit; font-size: .9rem; font-weight: 500; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 20px; padding-inline: 8px; }
+.chips button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.status { font-size: .8rem; color: var(--muted); min-height: 1.1em; }
+.status.bad { color: var(--warn); }
+ul { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+li button { width: 100%; min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left; font: inherit; font-weight: 500; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; touch-action: manipulation; }
+li button:active { transform: scale(.985); }
+li button:focus-visible, .chips button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+li .name { min-width: 0; overflow-wrap: anywhere; }
+li mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; border-radius: 3px; }
+li .tick { flex: none; width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: .9rem; color: transparent; }
+li.in button { background: var(--ok-bg); border-color: transparent; color: var(--muted); }
+li.in .name { text-decoration: line-through; text-decoration-thickness: 2px; }
+li.in .tick { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.empty { text-align: center; color: var(--muted); padding: 28px 8px; }
+.btn { font: inherit; font-weight: 600; min-height: 48px; padding-inline: 18px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.danger { color: var(--warn); }
+.add { width: 100%; margin-top: 10px; }
+details { margin-top: 28px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 4px 16px; }
+summary { min-height: 48px; display: flex; align-items: center; font-weight: 600; cursor: pointer; }
+.panel { display: grid; gap: 12px; padding-block: 4px 16px; }
+.panel p { margin: 0; color: var(--muted); font-size: .9rem; }
+textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; resize: vertical; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.row .btn { flex: 1 1 auto; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="top">
+      <h1>Guest check-in</h1>
+      <div class="count" id="count" aria-live="polite">0 <small>/ 0 here</small></div>
+    </div>
+    <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+    <div class="search">
+      <input id="q" type="search" inputmode="search" placeholder="Search a name" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Search guests">
+      <button id="clear" type="button" aria-label="Clear search" hidden>&times;</button>
+    </div>
+    <div class="chips" role="group" aria-label="Filter">
+      <button type="button" data-f="all" aria-pressed="true">All</button>
+      <button type="button" data-f="out" aria-pressed="false">Not here yet</button>
+      <button type="button" data-f="in" aria-pressed="false">Arrived</button>
+    </div>
+    <div class="status" id="status"></div>
+  </header>
+
+  <ul id="list"></ul>
+  <div id="addslot"></div>
+
+  <details id="setup">
+    <summary>Setup &amp; lists</summary>
+    <div class="panel">
+      <p>Paste names, one per line. Names already on the list are skipped, so you can paste again to add more.</p>
+      <textarea id="paste" placeholder="Anna Müller&#10;Tom Becker&#10;..."></textarea>
+      <button class="btn primary" id="import" type="button">Add names to list</button>
+      <div class="row">
+        <button class="btn danger" id="reset" type="button">Un-strike everyone</button>
+        <button class="btn danger" id="wipe" type="button">Delete whole list</button>
+      </div>
+      <p id="setupmsg"></p>
+    </div>
+  </details>
+</div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var guests = new Map();      // id -> {id, name, present}
+  var filter = 'all';
+  var dbc = null;              // collection ref or null (offline / local only)
+  var pending = {};            // id -> true while a local write is in flight
+
+  function norm(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function idFor(name) {
+    var n = norm(name), h = 5381;
+    for (var i = 0; i < n.length; i++) h = ((h * 33) ^ n.charCodeAt(i)) >>> 0;
+    var slug = n.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+    return (slug || 'g') + '_' + h.toString(36);
+  }
+  function setStatus(msg, bad) { var s = $('status'); s.textContent = msg; s.className = 'status' + (bad ? ' bad' : ''); }
+  function esc(s) { return s.replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function render() {
+    var all = Array.from(guests.values());
+    var here = all.filter(function (g) { return g.present; }).length;
+    $('count').innerHTML = here + ' <small>/ ' + all.length + ' here</small>';
+    $('bar').style.width = all.length ? (100 * here / all.length) + '%' : '0';
+
+    var q = norm($('q').value);
+    $('clear').hidden = !$('q').value;
+    var rows = all.filter(function (g) {
+      if (filter === 'in' && !g.present) return false;
+      if (filter === 'out' && g.present) return false;
+      return !q || norm(g.name).indexOf(q) !== -1;
+    }).sort(function (a, b) { return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }); });
+
+    var ul = $('list');
+    if (!rows.length) {
+      ul.innerHTML = '<li class="empty">' + (all.length
+        ? (q ? 'No one matches “' + esc($('q').value.trim()) + '”.' : 'Nobody in this view.')
+        : 'The list is empty. Open “Setup &amp; lists” below and paste your guests.') + '</li>';
+    } else {
+      ul.innerHTML = rows.map(function (g) {
+        var label = esc(g.name);
+        if (q) {
+          // highlight on the raw name when accents don't shift offsets
+          var i = norm(g.name) === g.name.toLowerCase() ? g.name.toLowerCase().indexOf(q) : -1;
+          if (i >= 0) label = esc(g.name.slice(0, i)) + '<mark>' + esc(g.name.slice(i, i + q.length)) + '</mark>' + esc(g.name.slice(i + q.length));
+        }
+        return '<li class="' + (g.present ? 'in' : '') + '"><button type="button" data-id="' + esc(g.id) + '" aria-pressed="' + g.present + '">' +
+          '<span class="name">' + label + '</span><span class="tick" aria-hidden="true">&#10003;</span></button></li>';
+      }).join('');
+    }
+
+    var raw = $('q').value.trim();
+    var exact = raw && guests.has(idFor(raw));
+    $('addslot').innerHTML = raw && !exact && !rows.length
+      ? '<button class="btn primary add" type="button" id="addone">Add “' + esc(raw) + '” as late guest</button>' : '';
+  }
+
+  async function writeGuest(g) {
+    if (!dbc) return;
+    pending[g.id] = true;
+    try { await dbc.doc(g.id).set({ name: g.name, present: g.present, at: Date.now() }); setStatus(''); }
+    catch (e) { setStatus('Could not save: ' + (e && e.message ? e.message : 'try again'), true); }
+    finally { delete pending[g.id]; }
+  }
+
+  async function toggle(id) {
+    var g = guests.get(id); if (!g) return;
+    g.present = !g.present;
+    if (navigator.vibrate) { try { navigator.vibrate(g.present ? 15 : 8); } catch (e) {} }
+    render();
+    await writeGuest(g);
+  }
+
+  async function addNames(names) {
+    var fresh = [], seen = new Set();
+    names.forEach(function (n) {
+      n = n.replace(/\s+/g, ' ').trim();
+      if (!n) return;
+      var id = idFor(n);
+      if (guests.has(id) || seen.has(id)) return;
+      seen.add(id); fresh.push({ id: id, name: n, present: false });
+    });
+    fresh.forEach(function (g) { guests.set(g.id, g); });
+    render();
+    // write in small parallel batches
+    for (var i = 0; i < fresh.length; i += 5) await Promise.all(fresh.slice(i, i + 5).map(writeGuest));
+    return fresh.length;
+  }
+
+  async function bulk(fn, items) {
+    for (var i = 0; i < items.length; i += 5) await Promise.all(items.slice(i, i + 5).map(fn));
+  }
+
+  // two-tap confirm for destructive buttons (confirm() is unavailable)
+  function guard(btn, label, action) {
+    var t = null, armed = false, orig = btn.textContent;
+    btn.addEventListener('click', async function () {
+      if (!armed) {
+        armed = true; btn.textContent = 'Tap again to confirm';
+        t = setTimeout(function () { armed = false; btn.textContent = orig; }, 4000);
+        return;
+      }
+      clearTimeout(t); armed = false; btn.textContent = orig;
+      await action();
+    });
+  }
+
+  $('list').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-id]'); if (b) toggle(b.getAttribute('data-id'));
+  });
+  $('q').addEventListener('input', render);
+  $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') e.target.blur(); });
+  $('clear').addEventListener('click', function () { $('q').value = ''; render(); $('q').focus(); });
+  document.querySelector('.chips').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-f]'); if (!b) return;
+    filter = b.getAttribute('data-f');
+    document.querySelectorAll('.chips button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+    render();
+  });
+  $('addslot').addEventListener('click', async function (e) {
+    if (!e.target.closest('#addone')) return;
+    var n = $('q').value; $('q').value = '';
+    await addNames([n]);
+  });
+  $('import').addEventListener('click', async function () {
+    var lines = $('paste').value.split(/\r?\n|;/);
+    var n = await addNames(lines);
+    $('paste').value = '';
+    $('setupmsg').textContent = n ? n + ' name' + (n === 1 ? '' : 's') + ' added.' : 'Nothing new to add.';
+  });
+  guard($('reset'), '', async function () {
+    var list = Array.from(guests.values()).filter(function (g) { return g.present; });
+    list.forEach(function (g) { g.present = false; }); render();
+    await bulk(writeGuest, list);
+    $('setupmsg').textContent = 'Everyone is un-struck.';
+  });
+  guard($('wipe'), '', async function () {
+    var list = Array.from(guests.values());
+    guests.clear(); render();
+    if (dbc) await bulk(function (g) { return dbc.doc(g.id).delete().catch(function () { setStatus('Some names could not be deleted.', true); }); }, list);
+    $('setupmsg').textContent = 'List deleted.';
+  });
+
+  render();
+
+  // Sync
+  (async function () {
+    var db = null;
+    try { db = window.claude && await window.claude.use('db'); } catch (e) {}
+    if (!db) { setStatus('Not synced: this view works on this phone only.', true); return; }
+    dbc = db.collection('guests');
+    setStatus('Connecting…');
+    dbc.onSnapshot(function (snap) {
+      var next = new Map();
+      snap.docs.forEach(function (d) {
+        var v = d.data(); if (!v || typeof v.name !== 'string') return;
+        var local = guests.get(d.id);
+        // keep my in-flight tap instead of flashing the old value
+        next.set(d.id, pending[d.id] && local ? local : { id: d.id, name: v.name, present: !!v.present });
+      });
+      guests = next;
+      setStatus(snap.metadata.fromCache ? 'Connecting…' : 'Synced');
+      render();
+    }, function (err) {
+      setStatus('Sync stopped (' + (err && err.code || 'error') + '). Reload the page.', true);
+    });
+  })();
+})();
+</script>
