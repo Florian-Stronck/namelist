@@ -72,6 +72,28 @@ summary { min-height: 48px; display: flex; align-items: center; font-weight: 600
 textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; resize: vertical; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; }
 .row .btn { flex: 1 1 auto; }
+li .tag { flex: none; font-size: .78rem; font-weight: 600; color: var(--ok); background: var(--surface); border-radius: 8px; padding: 3px 8px; text-decoration: none; display: inline-block; }
+li .meta { display: flex; align-items: center; gap: 10px; flex: none; }
+.sum { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; font-variant-numeric: tabular-nums; }
+.sum div { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px 4px; text-align: center; line-height: 1.15; }
+.sum b { display: block; font-size: 1.05rem; }
+.sum span { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.scrim { position: fixed; inset: 0; z-index: 20; background: rgba(5, 10, 16, .6); display: flex; align-items: flex-end; justify-content: center; }
+.sheet { width: 100%; max-width: 560px; background: var(--surface); border-radius: 20px 20px 0 0; padding: 20px 16px; padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); display: grid; gap: 12px; box-shadow: 0 -8px 30px rgba(0, 0, 0, .35); }
+.sheet h2 { font-family: var(--font-display); font-size: 1.3rem; margin: 0; overflow-wrap: anywhere; }
+.sheet .hint { margin: 0; color: var(--muted); font-size: .85rem; }
+.gtoggle { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font: inherit; font-weight: 600; color: var(--fg); background: var(--bg); border: 2px solid var(--line); border-radius: 12px; padding: 0 16px; }
+.gtoggle[aria-pressed="true"] { border-color: var(--warn); color: var(--warn); }
+.gtoggle .sw { width: 46px; height: 26px; border-radius: 13px; background: var(--line); position: relative; flex: none; }
+.gtoggle .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--surface); transition: left .15s; }
+.gtoggle[aria-pressed="true"] .sw { background: var(--warn); }
+.gtoggle[aria-pressed="true"] .sw::after { left: 23px; }
+.opts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.opt { min-height: 88px; display: grid; place-content: center; gap: 2px; text-align: center; font: inherit; font-weight: 600; color: var(--fg); background: var(--bg); border: 2px solid var(--line); border-radius: 14px; padding: 8px; }
+.opt b { font-size: 1.6rem; font-variant-numeric: tabular-nums; }
+.opt[aria-pressed="true"] { border-color: var(--ok); background: var(--ok-bg); }
+.opt:active { transform: scale(.98); }
+.opt:focus-visible, .gtoggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -95,6 +117,7 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
       <button type="button" data-f="out" aria-pressed="false">Not here yet</button>
       <button type="button" data-f="in" aria-pressed="false">Arrived</button>
     </div>
+    <div class="sum" id="sum" aria-label="Totals"></div>
     <div class="status" id="status"></div>
   </header>
 
@@ -117,10 +140,25 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
   </details>
 </div>
 
+<div class="scrim" id="scrim" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sname">
+    <h2 id="sname"></h2>
+    <button class="gtoggle" id="gtog" type="button" aria-pressed="false"><span>G looking</span><span class="sw" aria-hidden="true"></span></button>
+    <div class="opts">
+      <button class="opt" id="optpaid" type="button" aria-pressed="false">Paid<b id="pp"></b></button>
+      <button class="opt" id="optbottle" type="button" aria-pressed="false">Brought a bottle<b id="pb"></b></button>
+    </div>
+    <p class="hint">Tap Paid or Brought a bottle to check in.</p>
+    <button class="btn danger" id="remove" type="button" hidden>Remove check-in</button>
+    <button class="btn" id="cancel" type="button">Cancel</button>
+  </div>
+</div>
+
 <script>
 (function () {
+  var ENTRY = 6, G_EXTRA = 8;
   var $ = function (id) { return document.getElementById(id); };
-  var guests = new Map();      // id -> {id, name, present}
+  var guests = new Map();      // id -> {id, name, present, method, g, amount}
   var filter = 'all';
   var dbc = null;              // collection ref or null (offline / local only)
   var pending = {};            // id -> true while a local write is in flight
@@ -140,6 +178,13 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
     var here = all.filter(function (g) { return g.present; }).length;
     $('count').innerHTML = here + ' <small>/ ' + all.length + ' here</small>';
     $('bar').style.width = all.length ? (100 * here / all.length) + '%' : '0';
+
+    var tot = 0, paid = 0, btl = 0, gc = 0;
+    all.forEach(function (g) {
+      if (!g.present) return;
+      tot += g.amount || 0; if (g.method === 'paid') paid++; if (g.method === 'bottle') btl++; if (g.g) gc++;
+    });
+    $('sum').innerHTML = '<div><b>' + tot + '€</b><span>Collected</span></div><div><b>' + paid + '</b><span>Paid</span></div><div><b>' + btl + '</b><span>Bottles</span></div><div><b>' + gc + '</b><span>G</span></div>';
 
     var q = norm($('q').value);
     $('clear').hidden = !$('q').value;
@@ -162,8 +207,9 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
           var i = norm(g.name) === g.name.toLowerCase() ? g.name.toLowerCase().indexOf(q) : -1;
           if (i >= 0) label = esc(g.name.slice(0, i)) + '<mark>' + esc(g.name.slice(i, i + q.length)) + '</mark>' + esc(g.name.slice(i + q.length));
         }
+        var tag = g.present && g.method ? '<span class="tag">' + (g.g ? 'G ' : '') + (g.method === 'bottle' ? 'bottle' : '') + (g.amount ? (g.method === 'bottle' ? ' ' : '') + g.amount + '€' : '') + '</span>' : '';
         return '<li class="' + (g.present ? 'in' : '') + '"><button type="button" data-id="' + esc(g.id) + '" aria-pressed="' + g.present + '">' +
-          '<span class="name">' + label + '</span><span class="tick" aria-hidden="true">&#10003;</span></button></li>';
+          '<span class="name">' + label + '</span><span class="meta">' + tag + '<span class="tick" aria-hidden="true">&#10003;</span></span></button></li>';
       }).join('');
     }
 
@@ -176,18 +222,53 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
   async function writeGuest(g) {
     if (!dbc) return;
     pending[g.id] = true;
-    try { await dbc.doc(g.id).set({ name: g.name, present: g.present, at: Date.now() }); setStatus(''); }
+    var d = { name: g.name, present: g.present, at: Date.now() };
+    if (g.present && g.method) { d.method = g.method; d.g = !!g.g; d.amount = g.amount || 0; }
+    try { await dbc.doc(g.id).set(d); setStatus(''); }
     catch (e) { setStatus('Could not save: ' + (e && e.message ? e.message : 'try again'), true); }
     finally { delete pending[g.id]; }
   }
 
-  async function toggle(id) {
+  var sheetId = null, sheetG = false;
+  function fee(method, isG) { return (method === 'paid' ? ENTRY : 0) + (isG ? G_EXTRA : 0); }
+  function sheetPrices() {
+    $('pp').textContent = fee('paid', sheetG) + '€';
+    $('pb').textContent = fee('bottle', sheetG) + '€';
+    $('gtog').setAttribute('aria-pressed', String(sheetG));
+  }
+  function openSheet(id) {
     var g = guests.get(id); if (!g) return;
-    g.present = !g.present;
-    if (navigator.vibrate) { try { navigator.vibrate(g.present ? 15 : 8); } catch (e) {} }
+    sheetId = id; sheetG = !!g.g;
+    $('sname').textContent = g.name;
+    $('optpaid').setAttribute('aria-pressed', String(g.present && g.method === 'paid'));
+    $('optbottle').setAttribute('aria-pressed', String(g.present && g.method === 'bottle'));
+    $('remove').hidden = !g.present;
+    sheetPrices();
+    $('scrim').hidden = false;
+    $('optpaid').focus();
+  }
+  function closeSheet() { $('scrim').hidden = true; sheetId = null; }
+  async function checkIn(method) {
+    var g = guests.get(sheetId); if (!g) return closeSheet();
+    g.present = true; g.method = method; g.g = sheetG; g.amount = fee(method, sheetG);
+    closeSheet();
+    if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) {} }
     render();
     await writeGuest(g);
   }
+  async function removeCheckIn() {
+    var g = guests.get(sheetId); if (!g) return closeSheet();
+    g.present = false; g.method = null; g.g = false; g.amount = 0;
+    closeSheet(); render();
+    await writeGuest(g);
+  }
+  $('gtog').addEventListener('click', function () { sheetG = !sheetG; sheetPrices(); });
+  $('optpaid').addEventListener('click', function () { checkIn('paid'); });
+  $('optbottle').addEventListener('click', function () { checkIn('bottle'); });
+  $('remove').addEventListener('click', removeCheckIn);
+  $('cancel').addEventListener('click', closeSheet);
+  $('scrim').addEventListener('click', function (e) { if (e.target === $('scrim')) closeSheet(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('scrim').hidden) closeSheet(); });
 
   async function addNames(names) {
     var fresh = [], seen = new Set();
@@ -224,7 +305,7 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
   }
 
   $('list').addEventListener('click', function (e) {
-    var b = e.target.closest('button[data-id]'); if (b) toggle(b.getAttribute('data-id'));
+    var b = e.target.closest('button[data-id]'); if (b) openSheet(b.getAttribute('data-id'));
   });
   $('q').addEventListener('input', render);
   $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') e.target.blur(); });
@@ -248,7 +329,7 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
   });
   guard($('reset'), '', async function () {
     var list = Array.from(guests.values()).filter(function (g) { return g.present; });
-    list.forEach(function (g) { g.present = false; }); render();
+    list.forEach(function (g) { g.present = false; g.method = null; g.g = false; g.amount = 0; }); render();
     await bulk(writeGuest, list);
     $('setupmsg').textContent = 'Everyone is un-struck.';
   });
@@ -285,7 +366,7 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
       Object.keys(v).forEach(function (id) {
         var d = v[id]; if (!d || typeof d.name !== 'string') return;
         var local = guests.get(id);
-        next.set(id, pending[id] && local ? local : { id: id, name: d.name, present: !!d.present });
+        next.set(id, pending[id] && local ? local : { id: id, name: d.name, present: !!d.present, method: d.method || null, g: !!d.g, amount: d.amount || 0 });
       });
       guests = next;
       $('loadsaved').hidden = guests.size > 0 || !window.SAVED_GUESTS;
