@@ -1,6 +1,9 @@
 <title>Guest Check-in</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=DM+Sans:wght@400;500;600&display=swap">
 <style>
+html{-webkit-text-size-adjust:100%}body{margin:0}[hidden]{display:none!important}
 /* Layout: one narrow column; sticky header (title, counter, search, filters), big tap rows below, setup panel at the bottom. */
 :root {
   --bg: #f3f5f7;
@@ -72,6 +75,10 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="config.js"></script>
+<script src="guests.js"></script>
 <div class="wrap">
   <header>
     <div class="top">
@@ -93,6 +100,7 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
 
   <ul id="list"></ul>
   <div id="addslot"></div>
+  <button class="btn primary add" id="loadsaved" type="button" hidden>Load the saved guest list</button>
 
   <details id="setup">
     <summary>Setup &amp; lists</summary>
@@ -251,29 +259,38 @@ textarea { width: 100%; min-height: 150px; font: inherit; font-size: 16px; color
     $('setupmsg').textContent = 'List deleted.';
   });
 
+  $('loadsaved').addEventListener('click', async function () { $('loadsaved').hidden = true; await addNames(window.SAVED_GUESTS || []); });
+
   render();
 
-  // Sync
-  (async function () {
-    var db = null;
-    try { db = window.claude && await window.claude.use('db'); } catch (e) {}
-    if (!db) { setStatus('Not synced: this view works on this phone only.', true); return; }
-    dbc = db.collection('guests');
+  // Sync (Firebase Realtime Database)
+  (function () {
+    var cfg = window.FIREBASE_CONFIG;
+    if (!window.firebase || !cfg || !cfg.databaseURL || /PASTE/.test(cfg.databaseURL)) {
+      setStatus('Not synced: fill in config.js (see README).', true); return;
+    }
+    var ref;
+    try { firebase.initializeApp(cfg); ref = firebase.database().ref('guests'); }
+    catch (e) { setStatus('Firebase error: ' + e.message, true); return; }
+    dbc = { doc: function (id) { return {
+      set: function (d) { return ref.child(id).set(d); },
+      delete: function () { return ref.child(id).remove(); }
+    }; } };
     setStatus('Connecting…');
-    dbc.onSnapshot(function (snap) {
-      var next = new Map();
-      snap.docs.forEach(function (d) {
-        var v = d.data(); if (!v || typeof v.name !== 'string') return;
-        var local = guests.get(d.id);
-        // keep my in-flight tap instead of flashing the old value
-        next.set(d.id, pending[d.id] && local ? local : { id: d.id, name: v.name, present: !!v.present });
+    firebase.database().ref('.info/connected').on('value', function (s) {
+      setStatus(s.val() ? 'Synced' : 'Offline: changes sync when you are back online', !s.val());
+    });
+    ref.on('value', function (snap) {
+      var next = new Map(), v = snap.val() || {};
+      Object.keys(v).forEach(function (id) {
+        var d = v[id]; if (!d || typeof d.name !== 'string') return;
+        var local = guests.get(id);
+        next.set(id, pending[id] && local ? local : { id: id, name: d.name, present: !!d.present });
       });
       guests = next;
-      setStatus(snap.metadata.fromCache ? 'Connecting…' : 'Synced');
+      $('loadsaved').hidden = guests.size > 0 || !window.SAVED_GUESTS;
       render();
-    }, function (err) {
-      setStatus('Sync stopped (' + (err && err.code || 'error') + '). Reload the page.', true);
-    });
+    }, function (err) { setStatus('Sync stopped: ' + err.message + ' (check database rules)', true); });
   })();
 })();
 </script>
